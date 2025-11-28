@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Typy Bukmacherskie - Meczyki Style</title>
+    <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+    <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+    </style>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useMemo } = React;
+
+        const todayISO = () => new Date().toISOString().slice(0, 10);
+        const tomorrowISO = () => { 
+            const d = new Date(); 
+            d.setDate(d.getDate() + 1); 
+            return d.toISOString().slice(0,10); 
+        };
+        
+        const LOCAL_KEY = 'meczyki_types_local';
+        const VOTES_KEY = 'meczyki_votes';
+        const DEVICE_ID_KEY = 'meczyki_device_id';
+
+        // Generuj unikalny ID urządzenia jeśli nie istnieje
+        function getDeviceId() {
+            let deviceId = localStorage.getItem(DEVICE_ID_KEY);
+            if (!deviceId) {
+                deviceId = 'device_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+                localStorage.setItem(DEVICE_ID_KEY, deviceId);
+            }
+            return deviceId;
+        }
+
+        const SAMPLE = [
+            { id: '1', league: 'Premier League', match: 'Liverpool - Chelsea', time: '20:45', date: todayISO(), tip: 'Over 2.5', odd: '1.85', analysis: 'Dwie ofensywne drużyny, dużo bramek', author: 'Admin', plus: 12, minus: 2, state: 'pending', comments: [], votes: {} },
+            { id: '2', league: 'LaLiga', match: 'Real Madrid - Barcelona', time: '18:00', date: tomorrowISO(), tip: 'Real win', odd: '2.10', analysis: 'Forma Realu lepsza ostatnio', author: 'Mateusz', plus: 8, minus: 3, state: 'pending', comments: [], votes: {} }
+        ];
+
+        function App() {
+            const [items, setItems] = useState([]);
+            const [filter, setFilter] = useState('today');
+            const [adminMode, setAdminMode] = useState(true);
+            const [deviceId] = useState(getDeviceId());
+            const [form, setForm] = useState({ 
+                league: '', 
+                match: '', 
+                date: todayISO(), 
+                time: '20:00', 
+                tip: '', 
+                odd: '', 
+                analysis: '', 
+                author: '' 
+            });
+
+            useEffect(() => {
+                const raw = localStorage.getItem(LOCAL_KEY);
+                if(raw) {
+                    setItems(JSON.parse(raw));
+                } else {
+                    setItems(SAMPLE);
+                }
+            }, []);
+
+            useEffect(() => { 
+                localStorage.setItem(LOCAL_KEY, JSON.stringify(items)); 
+            }, [items]);
+
+            function addTip(e) { 
+                e?.preventDefault(); 
+                if(!form.match || !form.tip) return alert('Uzupełnij mecz i typ');
+                
+                const id = Date.now().toString();
+                setItems([{...form, id, plus:0, minus:0, state:'pending', comments:[], votes: {}}, ...items]);
+                setForm({ league: '', match: '', date: todayISO(), time: '20:00', tip: '', odd: '', analysis: '', author: '' });
+            }
+
+            function vote(id, type) {
+                const item = items.find(it => it.id === id);
+                if (!item) return;
+
+                // Inicjalizuj votes jeśli nie istnieje
+                const votes = item.votes || {};
+                
+                // Sprawdź czy to urządzenie już głosowało
+                const currentVote = votes[deviceId];
+                
+                if (currentVote === type) {
+                    // Jeśli kliknął ten sam przycisk - usuń głos
+                    const newVotes = {...votes};
+                    delete newVotes[deviceId];
+                    
+                    setItems(items.map(it => it.id === id ? {
+                        ...it,
+                        [type === 'plus' ? 'plus' : 'minus']: it[type === 'plus' ? 'plus' : 'minus'] - 1,
+                        votes: newVotes
+                    } : it));
+                } else if (currentVote) {
+                    // Jeśli głosował inaczej - zmień głos
+                    const opposite = currentVote === 'plus' ? 'minus' : 'plus';
+                    setItems(items.map(it => it.id === id ? {
+                        ...it,
+                        [opposite]: it[opposite] - 1,
+                        [type === 'plus' ? 'plus' : 'minus']: it[type === 'plus' ? 'plus' : 'minus'] + 1,
+                        votes: {...votes, [deviceId]: type}
+                    } : it));
+                } else {
+                    // Pierwszy głos tego urządzenia
+                    setItems(items.map(it => it.id === id ? {
+                        ...it,
+                        [type === 'plus' ? 'plus' : 'minus']: it[type === 'plus' ? 'plus' : 'minus'] + 1,
+                        votes: {...votes, [deviceId]: type}
+                    } : it));
+                }
+            }
+
+            function hasVoted(item, type) {
+                if (!item.votes) return false;
+                return item.votes[deviceId] === type;
+            }
+
+            function changeState(id, newState) { 
+                setItems(items.map(it => it.id === id ? {...it, state: newState} : it)); 
+            }
+
+            function addComment(id, text) { 
+                if(!text.trim()) return; 
+                setItems(items.map(it => it.id === id ? {
+                    ...it, 
+                    comments: [...it.comments, text]
+                } : it)); 
+            }
+
+            function deleteItem(id) {
+                if(!confirm('Usunąć ten typ?')) return;
+                setItems(items.filter(it => it.id !== id));
+            }
+
+            const filtered = useMemo(() => {
+                let res = [...items];
+                if(filter === 'today') res = res.filter(i => i.date === todayISO());
+                if(filter === 'tomorrow') res = res.filter(i => i.date === tomorrowISO());
+                if(filter === 'popular') res = res.filter(i => i.plus - i.minus >= 3);
+                return res;
+            }, [items, filter]);
+
+            return (
+                <div className='min-h-screen bg-black text-white p-6 font-sans'>
+                    <div className='max-w-4xl mx-auto'>
+                        <header className='mb-4'>
+                            <h1 className='text-3xl font-bold mb-1'>⚽ Zakładka: Typy</h1>
+                            <p className='text-gray-400 text-sm'>Lista typów w stylu Meczyki.pl – ciemny motyw</p>
+                        </header>
+
+                        <section className='mb-4 flex gap-3 flex-wrap'>
+                            <button 
+                                onClick={() => setFilter('today')} 
+                                className={`px-4 py-2 rounded ${filter === 'today' ? 'bg-blue-600' : 'bg-gray-800'}`}
+                            >
+                                Dzisiaj
+                            </button>
+                            <button 
+                                onClick={() => setFilter('tomorrow')} 
+                                className={`px-4 py-2 rounded ${filter === 'tomorrow' ? 'bg-blue-600' : 'bg-gray-800'}`}
+                            >
+                                Jutro
+                            </button>
+                            <button 
+                                onClick={() => setFilter('all')} 
+                                className={`px-4 py-2 rounded ${filter === 'all' ? 'bg-blue-600' : 'bg-gray-800'}`}
+                            >
+                                Wszystkie
+                            </button>
+                            <button 
+                                onClick={() => setFilter('popular')} 
+                                className={`px-4 py-2 rounded ${filter === 'popular' ? 'bg-blue-600' : 'bg-gray-800'}`}
+                            >
+                                Popularne
+                            </button>
+                            <label className='ml-auto flex items-center gap-1 text-sm'>
+                                <input 
+                                    type='checkbox' 
+                                    checked={adminMode} 
+                                    onChange={e => setAdminMode(e.target.checked)}
+                                /> 
+                                Admin
+                            </label>
+                        </section>
+
+                        {adminMode && (
+                            <section className='mb-6 bg-gray-900 p-4 rounded-2xl shadow-md space-y-2'>
+                                <h2 className='font-semibold mb-2'>Dodaj typ (Admin)</h2>
+                                <form onSubmit={addTip} className='grid gap-2'>
+                                    <div className='flex gap-2'>
+                                        <input 
+                                            className='flex-1 p-2 rounded bg-gray-800 border border-gray-700 text-white' 
+                                            placeholder='Liga (np. Premier League)' 
+                                            value={form.league} 
+                                            onChange={e => setForm({...form, league: e.target.value})}
+                                        />
+                                        <input 
+                                            type='date' 
+                                            className='w-44 p-2 rounded bg-gray-800 border border-gray-700 text-white' 
+                                            value={form.date} 
+                                            onChange={e => setForm({...form, date: e.target.value})}
+                                        />
+                                        <input 
+                                            type='time' 
+                                            className='w-28 p-2 rounded bg-gray-800 border border-gray-700 text-white' 
+                                            value={form.time} 
+                                            onChange={e => setForm({...form, time: e.target.value})}
+                                        />
+                                    </div>
+                                    <input 
+                                        className='p-2 rounded bg-gray-800 border border-gray-700 text-white' 
+                                        placeholder='Mecz (np. Liverpool - Chelsea)' 
+                                        value={form.match} 
+                                        onChange={e => setForm({...form, match: e.target.value})}
+                                    />
+                                    <div className='flex gap-2'>
+                                        <input 
+                                            className='flex-1 p-2 rounded bg-gray-800 border border-gray-700 text-white' 
+                                            placeholder='Typ (np. Over 2.5)' 
+                                            value={form.tip} 
+                                            onChange={e => setForm({...form, tip: e.target.value})}
+                                        />
+                                        <input 
+                                            className='w-32 p-2 rounded bg-gray-800 border border-gray-700 text-white' 
+                                            placeholder='Kurs' 
+                                            value={form.odd} 
+                                            onChange={e => setForm({...form, odd: e.target.value})}
+                                        />
+                                        <input 
+                                            className='w-40 p-2 rounded bg-gray-800 border border-gray-700 text-white' 
+                                            placeholder='Autor' 
+                                            value={form.author} 
+                                            onChange={e => setForm({...form, author: e.target.value})}
+                                        />
+                                    </div>
+                                    <textarea 
+                                        className='p-2 rounded bg-gray-800 border border-gray-700 text-white' 
+                                        placeholder='Analiza (opcjonalnie)' 
+                                        value={form.analysis} 
+                                        onChange={e => setForm({...form, analysis: e.target.value})}
+                                        rows="2"
+                                    />
+                                    <button 
+                                        type='submit' 
+                                        className='w-full py-2 mt-2 rounded-xl bg-green-600 font-semibold hover:bg-green-700'
+                                    >
+                                        ✅ Dodaj typ
+                                    </button>
+                                </form>
+                            </section>
+                        )}
+
+                        <main className='space-y-3'>
+                            {filtered.length === 0 ? (
+                                <div className='text-center py-12 bg-gray-800 rounded-2xl'>
+                                    <p className='text-gray-400'>Brak typów do wyświetlenia</p>
+                                </div>
+                            ) : (
+                                filtered.map(it => (
+                                    <article key={it.id} className='bg-gray-800 p-4 rounded-2xl shadow flex gap-4 relative'>
+                                        {adminMode && (
+                                            <button 
+                                                onClick={() => deleteItem(it.id)}
+                                                className='absolute top-2 right-2 text-red-400 hover:text-red-300 text-sm px-2 py-1 bg-gray-900 rounded'
+                                            >
+                                                🗑️
+                                            </button>
+                                        )}
+                                        <div className='w-56 flex flex-col text-sm'>
+                                            <div className='font-semibold text-blue-400'>{it.league}</div>
+                                            <div className='text-gray-400 text-xs'>{it.date} {it.time}</div>
+                                            <div className='mt-2 text-sm'>
+                                                Autor: <span className='font-medium text-purple-400'>{it.author || 'Anonim'}</span>
+                                            </div>
+                                        </div>
+                                        <div className='flex-1'>
+                                            <div className='flex justify-between items-baseline'>
+                                                <h3 className='text-lg font-semibold'>{it.match}</h3>
+                                                <div className='text-sm'>
+                                                    Kurs: <span className='font-semibold text-yellow-400'>{it.odd}</span>
+                                                </div>
+                                            </div>
+                                            <div className='mt-1 text-green-400 font-medium'>
+                                                📊 Typ: {it.tip}
+                                            </div>
+                                            {it.analysis && (
+                                                <p className='mt-2 text-gray-300 text-sm'>{it.analysis}</p>
+                                            )}
+                                            <div className='flex gap-2 mt-3'>
+                                                <button 
+                                                    onClick={() => vote(it.id, 'plus')} 
+                                                    className={`px-3 py-1 rounded transition ${
+                                                        hasVoted(it, 'plus') 
+                                                            ? 'bg-green-600 ring-2 ring-green-400' 
+                                                            : 'bg-green-700 hover:bg-green-600'
+                                                    }`}
+                                                >
+                                                    👍 {it.plus}
+                                                </button>
+                                                <button 
+                                                    onClick={() => vote(it.id, 'minus')} 
+                                                    className={`px-3 py-1 rounded transition ${
+                                                        hasVoted(it, 'minus') 
+                                                            ? 'bg-red-600 ring-2 ring-red-400' 
+                                                            : 'bg-red-700 hover:bg-red-600'
+                                                    }`}
+                                                >
+                                                    👎 {it.minus}
+                                                </button>
+                                                <div className='ml-auto text-sm text-gray-400'>
+                                                    Bilans: {it.plus - it.minus > 0 ? '+' : ''}{it.plus - it.minus}
+                                                </div>
+                                            </div>
+                                            <div className='mt-3 bg-gray-900 p-3 rounded-xl'>
+                                                <h4 className='font-semibold mb-2 text-sm'>
+                                                    💬 Komentarze ({it.comments.length})
+                                                </h4>
+                                                <div className='space-y-2 mb-2 max-h-60 overflow-y-auto'>
+                                                    {it.comments.map((c, i) => (
+                                                        <div key={i} className='bg-gray-800 p-2 rounded text-sm'>
+                                                            {c}
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                                <AddComment onSend={txt => addComment(it.id, txt)}/>
+                                            </div>
+                                        </div>
+                                    </article>
+                                ))
+                            )}
+                        </main>
+
+                        <footer className='mt-8 text-center text-gray-500 text-sm'>
+                            <p>⚽ Typy Bukmacherskie - Dane zapisywane lokalnie w przeglądarce</p>
+                        </footer>
+                    </div>
+                </div>
+            );
+        }
+
+        function AddComment({onSend}) {
+            const [text, setText] = useState('');
+            
+            const handleSend = () => {
+                if(text.trim()) {
+                    onSend(text);
+                    setText('');
+                }
+            };
+
+            return (
+                <div className='flex gap-2 mt-2'>
+                    <input 
+                        className='flex-1 p-2 rounded bg-gray-700 text-sm text-white' 
+                        placeholder='Dodaj komentarz...' 
+                        value={text} 
+                        onChange={e => setText(e.target.value)}
+                        onKeyPress={e => e.key === 'Enter' && handleSend()}
+                    />
+                    <button 
+                        className='bg-blue-600 px-4 rounded-xl hover:bg-blue-500 transition' 
+                        onClick={handleSend}
+                    >
+                        OK
+                    </button>
+                </div>
+            );
+        }
+
+        ReactDOM.render(<App />, document.getElementById('root'));
+    </script>
+</body>
+</html>
